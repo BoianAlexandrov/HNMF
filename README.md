@@ -32,27 +32,35 @@ Actual parameters of the sources in the generated data:
            source 1   source 2
 
 # strength 
+
 A [mg/L]     0.5	 0.7
 
 # position 
+
 x [km]	    -0.1 	-0.9 
-y [km]      -0.2  -0.8
+
+y [km]      -0.2  	-0.8
 
 
 Actual parameters of the medium:
 
 # advection velocity 
+
 u_x = 0.05 [km/year]
 
 # dispersivity 
+
 D_x = 0.005   [km^2/year]
+
 D_y = 0.00125 [km^2/year]
 
 
 Positions of detectors:
 
 	D1	 D2	D3	D4
+	
 x	0	-0.5	0.5	0.5
+
 y	0	-0.5	0.5    -0.5
 
 
