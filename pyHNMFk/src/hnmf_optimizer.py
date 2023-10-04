@@ -173,6 +173,9 @@ class HNMFOptimizer:
                 flat_init, _ = self.flatten(*self.param_generator(k))
                 try:
                     res = opt.minimize(np.asarray(flat_init))
+                    # res['num_iters'] = opt.iteration
+                    # res['converged'] = opt.converged
+                    # res['init_paramas'] = flat_init
                     results.append(res)
                     successes+=1
                 except:
@@ -183,6 +186,7 @@ class HNMFOptimizer:
             # norm from matlab HNMF code
             res['normF'] = np.sqrt((res['fval']/AA))*100
             res['num_sources'] = k
+            
             result_dfs.append(res)
 
             t2 = time.time()
