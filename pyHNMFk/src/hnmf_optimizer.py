@@ -9,7 +9,8 @@ import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_debug_nans", True)
 import fides
-# import fides_jax
+import fides_jax
+from .trust_region_optimizer import TrustRegionOptimizer
 import numpy as np
 import pandas as pd
 
@@ -120,27 +121,28 @@ class HNMFOptimizer:
             k,
             inputs,
             observations,
+            opt_case,
             log_level=logging.ERROR,
-            use_jax=False,
             fides_opt_options=None
         ):
+        if fides_opt_options is None:
+            fides_opt_options={
+                'maxiter': 400,
+                'xtol': 1e-6,
+                'stepback_strategy': 'truncate',
+            }
         _obj = self.make_obj_func(k, inputs, observations)
         lb, ub = self.bound_generator(k)
         lb, _ = self.flatten(*lb)
         ub, _ = self.flatten(*ub)
         # fides optimizer object
-        if use_jax:
-            raise NotImplementedError
-            # opt_cls = fides_jax.Optimizer2
-            # obj = _obj
+        if opt_case == 'fides_jax':
+            opt_cls = fides_jax.Optimizer2
+            obj = _obj
+        elif opt_case == 'tr_optimizer':
+            opt_cls = TrustRegionOptimizer
+            obj = _obj
         else:
-            if fides_opt_options is None:
-                fides_opt_options={
-                    'maxiter': 400,
-                    'xtol': 1e-6,
-                    'stepback_strategy': 'truncate',
-                }
-
             opt_cls = fides.Optimizer
             def obj(x):
                 loss, grad, hess = _obj(x)
@@ -154,7 +156,7 @@ class HNMFOptimizer:
             verbose = log_level
         )
 
-    def __call__(self, inputs, observations, fides_opt_options=None):
+    def __call__(self, inputs, observations, opt_case=None, fides_opt_options=None):
         AA = 0 # some normalization factor to be used for AIC calculation later
         for i in range(observations.shape[1]):
             AA += np.sum(observations[:, i]**2)
@@ -164,7 +166,7 @@ class HNMFOptimizer:
         for k in range(self.min_k, self.max_k+1):
             ### define optimization object ###
             t1 = time.time()
-            opt = self.setup_optimizer(k, inputs, observations, fides_opt_options=fides_opt_options)
+            opt = self.setup_optimizer(k, inputs, observations, opt_case, fides_opt_options=fides_opt_options)
 
             ### run minimization on nsim random inits ###
             results = []
@@ -184,7 +186,7 @@ class HNMFOptimizer:
                     print(the_type)
             res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess'], data=results)
             # norm from matlab HNMF code
-            res['normF'] = np.sqrt((res['fval']/AA))*100
+            res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
             res['num_sources'] = k
             
             result_dfs.append(res)

@@ -2,7 +2,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from functools import partial
-import math
 
 # green model functions using JAX
 
@@ -96,6 +95,8 @@ def extract_point(row):
         point.extend(x[p])
         point.extend(sol[2])
         point.extend(sol[3])
+        point = jnp.stack(point).tolist()
         points.append(point)
+        
     return points
 
