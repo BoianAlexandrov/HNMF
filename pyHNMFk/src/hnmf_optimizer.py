@@ -8,8 +8,6 @@ import jax
 import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_debug_nans", True)
-import fides
-import fides_jax
 from .trust_region_optimizer import TrustRegionOptimizer
 import numpy as np
 import pandas as pd
@@ -34,16 +32,16 @@ def unflatten(flat_inputs, shapes):
 # quicker calculation for val and jac
 # source: https://github.com/google/jax/pull/762#issuecomment-1002267121
 def value_and_jacfwd(f, x):
-  pushfwd = functools.partial(jax.jvp, f, (x,))
-  basis = jnp.eye(x.size, dtype=x.dtype)
-  y, jac = jax.vmap(pushfwd, out_axes=(None, 1))((basis,))
-  return y, jac
+    pushfwd = functools.partial(jax.jvp, f, (x,))
+    basis = jnp.eye(x.size, dtype=x.dtype)
+    y, jac = jax.vmap(pushfwd, out_axes=(None, 1))((basis,))
+    return y, jac
 
 def value_and_jacrev(f, x):
-  y, pullback = jax.vjp(f, x)
-  basis = jnp.eye(y.size, dtype=y.dtype)
-  jac = jax.vmap(pullback)(basis)
-  return y, jac
+    y, pullback = jax.vjp(f, x)
+    basis = jnp.eye(y.size, dtype=y.dtype)
+    jac = jax.vmap(pullback)(basis)
+    return y, jac
 
 
 class HNMFOptimizer:
@@ -106,7 +104,7 @@ class HNMFOptimizer:
 
     def make_obj_func(self, k, inputs, observations):
         resid = self.make_resid_fn(k, inputs, observations)
-        @jax.jit
+        # @jax.jit
         def obj(x):
             r, jac_r = value_and_jacfwd(resid, x)
             loss = 0.5*jnp.sum(jnp.square(r))
@@ -121,28 +119,15 @@ class HNMFOptimizer:
             k,
             inputs,
             observations,
-            opt_case,
             log_level=logging.ERROR,
             opt_options=None
         ):
-        _obj = self.make_obj_func(k, inputs, observations)
+        obj = self.make_obj_func(k, inputs, observations)
         lb, ub = self.bound_generator(k)
         lb, _ = self.flatten(*lb)
         ub, _ = self.flatten(*ub)
-        # fides optimizer object
-        if opt_case == 'fides_jax':
-            opt_cls = fides_jax.Optimizer2
-            obj = _obj
-        elif opt_case == 'tr_optimizer':
-            opt_cls = TrustRegionOptimizer
-            obj = _obj
-        else:
-            opt_cls = fides.Optimizer
-            def obj(x):
-                loss, grad, hess = _obj(x)
-                return float(loss), np.asarray(grad), np.asarray(hess)
 
-        return opt_cls(
+        return TrustRegionOptimizer(
             obj,
             ub=ub,
             lb=lb,
@@ -150,7 +135,7 @@ class HNMFOptimizer:
             verbose = log_level
         )
 
-    def __call__(self, inputs, observations, opt_case=None, opt_options=None):
+    def __call__(self, inputs, observations, opt_options=None):
         AA = 0 # some normalization factor to be used for AIC calculation later
         for i in range(observations.shape[1]):
             AA += np.sum(observations[:, i]**2)
@@ -160,7 +145,7 @@ class HNMFOptimizer:
         for k in range(self.min_k, self.max_k+1):
             ### define optimization object ###
             t1 = time.time()
-            opt = self.setup_optimizer(k, inputs, observations, opt_case, opt_options=opt_options)
+            opt = self.setup_optimizer(k, inputs, observations, opt_options=opt_options)
 
             ### run minimization on nsim random inits ###
             results = []
@@ -169,12 +154,9 @@ class HNMFOptimizer:
                 flat_init, _ = self.flatten(*self.param_generator(k))
                 try:
                     res = opt.minimize(np.asarray(flat_init))
-                    # res['num_iters'] = opt.iteration
-                    # res['converged'] = opt.converged
-                    # res['init_paramas'] = flat_init
                     results.append(res)
                     successes+=1
-                except:
+                except: # TODO: catch specific exception types
                     the_type, the_value, the_traceback = sys.exc_info()
                     errors.append((the_type, the_value, the_traceback))
                     print(the_type)
