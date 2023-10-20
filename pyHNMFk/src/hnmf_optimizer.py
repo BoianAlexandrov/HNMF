@@ -123,14 +123,8 @@ class HNMFOptimizer:
             observations,
             opt_case,
             log_level=logging.ERROR,
-            fides_opt_options=None
+            opt_options=None
         ):
-        if fides_opt_options is None:
-            fides_opt_options={
-                'maxiter': 400,
-                'xtol': 1e-6,
-                'stepback_strategy': 'truncate',
-            }
         _obj = self.make_obj_func(k, inputs, observations)
         lb, ub = self.bound_generator(k)
         lb, _ = self.flatten(*lb)
@@ -152,11 +146,11 @@ class HNMFOptimizer:
             obj,
             ub=ub,
             lb=lb,
-            options=fides_opt_options,
+            options=opt_options,
             verbose = log_level
         )
 
-    def __call__(self, inputs, observations, opt_case=None, fides_opt_options=None):
+    def __call__(self, inputs, observations, opt_case=None, opt_options=None):
         AA = 0 # some normalization factor to be used for AIC calculation later
         for i in range(observations.shape[1]):
             AA += np.sum(observations[:, i]**2)
@@ -166,7 +160,7 @@ class HNMFOptimizer:
         for k in range(self.min_k, self.max_k+1):
             ### define optimization object ###
             t1 = time.time()
-            opt = self.setup_optimizer(k, inputs, observations, opt_case, fides_opt_options=fides_opt_options)
+            opt = self.setup_optimizer(k, inputs, observations, opt_case, opt_options=opt_options)
 
             ### run minimization on nsim random inits ###
             results = []
