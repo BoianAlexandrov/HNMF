@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
-jax.config.update("jax_debug_nans", True)
+# jax.config.update("jax_debug_nans", True)
 np_eps = jnp.finfo(jnp.float64).eps
 
 def jax_multi_where(cond, res_true, res_false):
@@ -367,8 +367,9 @@ class TrustRegionOptimizer:
             init_kwargs['ub'] = ub
         self.init_kwargs = init_kwargs
         self.obj_fn = jax.jit(obj_fn)
-        self.eps = np_eps
         self.state = None
+        self.converge_cond = lambda state: state['finished']
+
         def update(state):
             step = tr_iteration(
                 state['x'],
@@ -448,6 +449,22 @@ class TrustRegionOptimizer:
                 (state['f_old'], state['x'], state['fval'], state['grad'], state['hess'], state['gnorm'])
             )
 
+            state['converged'] = jnp.any(jnp.array([
+                jnp.logical_and(
+                    jnp.greater(state['tr_ratio'], state['mu']),
+                    jnp.less(state['f_diff'], state['fatol'] + state['frtol'] * state['f_old'])
+                ),
+                jnp.logical_and(jnp.greater(state['iter'], 1), jnp.less(state['nsx'], state['xtol'])),
+                jnp.less_equal(state['gnorm'], state['gatol']),
+                jnp.less_equal(state['gnorm'], state['grtol'] * jnp.abs(state['f_old']))
+            ]))
+
+            state['finished'] = jnp.any(jnp.array([
+                state['converged'],
+                jnp.greater_equal(state['iter'], state['maxiter']),
+                jnp.less_equal(state['delta'], np_eps)
+            ]))
+
             return state
         self.update = jax.jit(update)
 
@@ -464,7 +481,6 @@ class TrustRegionOptimizer:
             state['hess'],
         )
 
-    # TODO: use StepInfo object for state
     def init_state(self, params, **kwargs):
         loss, grad, hess = self.obj_fn(params)
         return {
@@ -477,7 +493,7 @@ class TrustRegionOptimizer:
             # optimizer params
             'lb': kwargs.get('lb') if kwargs.get('lb') is not None else -jnp.inf*jnp.ones(params.shape),
             'ub': kwargs.get('ub') if kwargs.get('ub') is not None else jnp.inf*jnp.ones(params.shape),
-            'maxiter': kwargs.get('maxiter') or 1e3,
+            'maxiter': kwargs.get('maxiter') or 1500,
             'fatol': kwargs.get('fatol') or 1e-8,
             'frtol': kwargs.get('frtol') or 1e-8,
             'xtol': kwargs.get('xtol') or 0.0,
@@ -496,7 +512,7 @@ class TrustRegionOptimizer:
             'tr_ratio': 0.0,
             'dv': jnp.nan,
             'qpval': jnp.nan,
-            'type': jnp.nan,
+            'type': -1,
             's': jnp.nan,
             's0': jnp.nan,
             'ss': jnp.nan,
@@ -505,18 +521,9 @@ class TrustRegionOptimizer:
             'nsx': jnp.nan,
             'normdx': jnp.nan,
             'accepted': False,
+            'converged': False,
+            'finished': False,
         }
-
-    def converge_cond(self, state):
-        return (
-            state['tr_ratio'] > state['mu'] and state['f_diff'] < state['fatol'] + state['frtol'] * state['f_old']
-            or state['iter'] > 1 and state['nsx'] < state['xtol']
-            or state['gnorm'] <= state['gatol']
-            or state['gnorm'] <= state['grtol'] * jnp.abs(state['f_old'])
-        ) or (
-            state['iter'] >= state['maxiter']
-            or state['delta'] <= self.eps
-        )
 
     def log_step(self, state):
         if state['iter'] % 10 == 0:
@@ -536,3 +543,49 @@ class TrustRegionOptimizer:
             f'|   {state["type"]} '
             f'| {state["accepted"]}'
         )
+
+class ParallelTrustRegionOptimizer(TrustRegionOptimizer):
+    def __init__(self, obj_fn, lb = None, ub = None, **kwargs):
+        super(ParallelTrustRegionOptimizer, self).__init__(obj_fn, lb = None, ub = None, **kwargs)
+        self.pupdate = jax.pmap(self.update)
+        self.pcond = jax.pmap(self.converge_cond)
+    
+    def init_state(self, params, **kwargs):
+        states = [super(ParallelTrustRegionOptimizer, self).init_state(single_params, **kwargs) for single_params in params]
+        pstate = jax.tree_util.tree_map(lambda *xs: jnp.stack(xs), *states)
+        return pstate
+
+    def pop_replace_ind(self, pstate, ind, new_params, **kwargs):
+        # retrieve individual state
+        res_state = jax.tree_util.tree_map(lambda x: x[ind], pstate)
+        # replace individual state
+        new_state = super(ParallelTrustRegionOptimizer, self).init_state(new_params, **kwargs)
+        pstate = jax.tree_util.tree_map(lambda x, y: x.at[ind].set(y), pstate, new_state)
+        return res_state, pstate
+
+    def minimize(self, params):
+        num_devices = jax.device_count()
+        pstate = self.init_state(params[:num_devices], **self.init_kwargs)
+        results = []
+        param_ind = num_devices
+        while len(results) < len(params):
+            # done = jnp.where(state['finished'])
+            # print(f'done: {done}')
+            # for ind in done:
+            if jnp.any(pstate['finished']):
+                for ind in range(pstate['finished'].shape[0]):
+                    if pstate['finished'][ind]:
+                        # print(f'state converge before: {pstate["finished"]}')
+                        res_state, pstate = self.pop_replace_ind(pstate, ind, params[param_ind],  **self.init_kwargs)
+                        # print(f'state converge after: {pstate["converged"]}')
+                        results.append(res_state)
+                        # hacky way to complete all params
+                        # TODO: handle in cleaner way
+                        param_ind = min(param_ind + 1, params.shape[0]-1)
+            pstate = self.pupdate(pstate)
+        # print(results)
+        # return results
+        return [
+            (state['fval'], state['x'], state['grad'], state['hess'])
+            for state in results
+        ]
