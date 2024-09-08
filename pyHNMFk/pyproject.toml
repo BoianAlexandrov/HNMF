@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hnmf-tr-optimizer"
+version = "0.0.1"
+description = "Hybrid- NMFk using trust-region optimizatio"
+requires-python = ">=3.10"
+
+dependencies = [
+    "jax",
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn"
+]
