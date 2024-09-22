@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hnmf-tr-optimizer"
 version = "0.0.1"
-description = "Hybrid- NMFk using trust-region optimizatio"
+description = "Hybrid-NMFk using trust-region optimization"
 requires-python = ">=3.10"
 
 dependencies = [

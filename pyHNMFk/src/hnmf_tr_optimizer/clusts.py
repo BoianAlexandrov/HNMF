@@ -37,7 +37,7 @@ def cluster_converge_outerloop(Wall, Hall, totalprocess, dist="cosine",
     avgSilhouetteCoefficients = -1  # intial avgSilhouetteCoefficients 
     
     #do the parallel clustering 
-    result_list = parallel_clustering(Wall, Hall, totalprocess, iterations=50,
+    result_list = sequential_clustering(Wall, Hall, totalprocess, iterations=50,
                                       n_cpu=n_cpu,  dist=dist, gpu=gpu,
                                       cluster_rand_seq=cluster_rand_seq)
     
@@ -50,6 +50,25 @@ def cluster_converge_outerloop(Wall, Hall, totalprocess, dist="cosine",
         
       
     return  processAvg, exposureAvg, processSTE,  exposureSTE, avgSilhouetteCoefficients, clusterSilhouetteCoefficients
+
+def sequential_clustering(Wall, Hall, totalProcesses, iterations=50, dist="cosine", gpu=False, cluster_rand_seq=None):
+    
+    # create random generators for each iteration
+    sub_rand_generator = cluster_rand_seq.spawn(iterations)
+    iteration_generator_pairs = []
+    
+    # pair generator with an iteration
+    for i, j in zip(range(iterations), sub_rand_generator):
+        iteration_generator_pairs.append([i, j])
+    
+    result_list = []
+    
+    # sequentially call the inner loop function
+    for pair in iteration_generator_pairs:
+        result = cluster_converge_innerloop(Wall, Hall, totalProcesses, pair, dist=dist, gpu=gpu)
+        result_list.append(result)
+    
+    return result_list
 
 def parallel_clustering(Wall, Hall, totalProcesses, iterations=50,  n_cpu=-1, dist= "cosine", gpu=False, cluster_rand_seq=None):
     
