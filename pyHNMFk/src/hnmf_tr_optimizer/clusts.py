@@ -51,7 +51,7 @@ def cluster_converge_outerloop(Wall, Hall, totalprocess, dist="cosine",
       
     return  processAvg, exposureAvg, processSTE,  exposureSTE, avgSilhouetteCoefficients, clusterSilhouetteCoefficients
 
-def sequential_clustering(Wall, Hall, totalProcesses, iterations=50, dist="cosine", gpu=False, cluster_rand_seq=None):
+def sequential_clustering(Wall, Hall, totalProcesses, iterations=50, dist="cosine", gpu=False, cluster_rand_seq=None, **kwargs):
     
     # create random generators for each iteration
     sub_rand_generator = cluster_rand_seq.spawn(iterations)

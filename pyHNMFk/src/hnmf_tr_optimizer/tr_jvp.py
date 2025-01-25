@@ -208,27 +208,6 @@ def step_compute(x, subspace, sg, shess_func, delta, lb, ub, scaling, ss0, theta
 def tr_iteration(x, grad, hvp, lb, ub, theta_max, delta):
     v, dv = get_affine_scaling(x, grad, lb, ub)
 
-    ### trust region init ###
-
-    # scaling = jnp.diag(jnp.sqrt(jnp.abs(v)))
-    # theta = jnp.maximum(theta_max, 1 - jnp.linalg.norm(v * grad, jnp.inf))
-
-    # sg = scaling.dot(grad)
-    # # diag(g_k)*J^v_k Eq (2.5) [ColemanLi1994]
-    # g_dscaling = jnp.diag(jnp.abs(grad) * dv)
-
-
-    # ### step ###
-    # # B_hat (Eq 2.5) [ColemanLi1996]
-    # shess = jnp.matmul(jnp.matmul((scaling), hess), (scaling)) + g_dscaling
-
-    # s0 = jnp.zeros(sg.shape)
-    # ss0 = jnp.zeros(sg.shape)
-
-    # ### 2D steps ###
-
-    # og_s_newt = -jnp.linalg.lstsq(shess, sg)[0]
-
     theta = jnp.maximum(theta_max, 1 - jnp.linalg.norm(v * grad, jnp.inf))
     scale_vec = jnp.sqrt(jnp.abs(v))
     scaling = jnp.diag(scale_vec)
@@ -242,6 +221,7 @@ def tr_iteration(x, grad, hvp, lb, ub, theta_max, delta):
         scaled = scale_vec*almost_done
         return scaled + g_dscaling_vec*x
 
+    # find the gauss-newton optimal point without matrix multiplication
     shess_func = functools.partial(lin_op_, g_dscaling_vec, scale_vec)
     og_s_newt = -jax.scipy.sparse.linalg.cg(shess_func, sg)[0]
 
@@ -272,11 +252,8 @@ def tr_iteration(x, grad, hvp, lb, ub, theta_max, delta):
     trt_x = x + trt_s0
 
     trt_subspace = subspace.at[iminbr, :].set(0)
-    # normalize subspace
-    for ix in range(trt_subspace.shape[1]):
-        # column normalization
-        trt_subspace.at[:, ix].set(normalize(trt_subspace[:, ix]))
-
+    trt_subspace = jax.vmap(normalize, 1)(trt_subspace).T
+ 
     def dummy(trt_x, trt_subspace, sg, delta, lb, ub, scaling, trt_ss0, theta):
         return step_compute(trt_x, trt_subspace, sg, shess_func, delta, lb, ub, scaling, trt_ss0, theta)
 
