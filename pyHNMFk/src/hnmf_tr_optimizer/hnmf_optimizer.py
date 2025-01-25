@@ -8,7 +8,8 @@ import jax
 import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_debug_nans", True)
-from .trust_region_optimizer import TrustRegionOptimizer, ParallelTrustRegionOptimizer
+# from .trust_region_optimizer import TrustRegionOptimizer, ParallelTrustRegionOptimizer
+from .tr_jvp import TrustRegionOptimizer, ParallelTrustRegionOptimizer
 import numpy as np
 import pandas as pd
 
@@ -104,15 +105,24 @@ class HNMFOptimizer:
 
     def make_obj_func(self, k, inputs, observations):
         resid = self.make_resid_fn(k, inputs, observations)
-        # @jax.jit
-        def obj(x):
-            r, jac_r = value_and_jacfwd(resid, x)
-            loss = 0.5*jnp.sum(jnp.square(r))
-            grad = jnp.matmul(r.T, jac_r)
-            hess = jnp.matmul(jac_r.T, jac_r)
-            return loss, grad, hess
 
-        return obj
+        def resid_grad_(x):
+            primals, pullback = jax.vjp(resid, x)
+            resid_output = resid(x)
+            return resid_output, pullback(resid_output.T)[0]
+
+        def hvp_(x, v):
+            pushfwd = functools.partial(jax.jvp, resid, (x,))
+            primals, pullback = jax.vjp(resid, x)
+            out, jvp_prod = jax.jvp(resid, (x,), (v,))
+            return pullback(jvp_prod)[0]
+
+        def obj(x):
+            r, grad = resid_grad_(x)
+            loss = 0.5*jnp.sum(jnp.square(r))
+            return loss, grad
+
+        return obj, hvp_
 
     def setup_optimizer(
             self,
@@ -122,13 +132,14 @@ class HNMFOptimizer:
             log_level=logging.ERROR,
             opt_options=None
         ):
-        obj = self.make_obj_func(k, inputs, observations)
+        obj, hvp = self.make_obj_func(k, inputs, observations)
         lb, ub = self.bound_generator(k)
         lb, _ = self.flatten(*lb)
         ub, _ = self.flatten(*ub)
 
         return TrustRegionOptimizer(
             obj,
+            hvp,
             ub=ub,
             lb=lb,
             options=opt_options,
@@ -160,7 +171,7 @@ class HNMFOptimizer:
                 #     the_type, the_value, the_traceback = sys.exc_info()
                 #     errors.append((the_type, the_value, the_traceback))
                 #     print(the_type)
-            res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess'], data=results)
+            res = pd.DataFrame(columns=['fval', 'sol', 'grad'], data=results)
             # norm from matlab HNMF code
             res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
             res['num_sources'] = k
@@ -211,7 +222,7 @@ class ParallelHNMFOptimizer(HNMFOptimizer):
             ### run minimization on nsim random inits ###
             pflat_init = jnp.stack([self.flatten(*self.param_generator(k))[0] for _ in range(self.nsim)])
             results = opt.minimize(pflat_init)
-            res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess'], data=results)
+            res = pd.DataFrame(columns=['fval', 'sol', 'grad'], data=results)
             res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
             res['num_sources'] = k
             
