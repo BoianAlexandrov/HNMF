@@ -1,0 +1,10 @@
+pyproject.toml
+src/hnmf_tr_optimizer/clusts.py
+src/hnmf_tr_optimizer/hnmf_optimizer.py
+src/hnmf_tr_optimizer/tr_jvp.py
+src/hnmf_tr_optimizer/trust_region_optimizer.py
+src/hnmf_tr_optimizer.egg-info/PKG-INFO
+src/hnmf_tr_optimizer.egg-info/SOURCES.txt
+src/hnmf_tr_optimizer.egg-info/dependency_links.txt
+src/hnmf_tr_optimizer.egg-info/requires.txt
+src/hnmf_tr_optimizer.egg-info/top_level.txt

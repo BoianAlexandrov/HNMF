@@ -156,16 +156,17 @@ class HNMFOptimizer:
                 # try:
                 res = opt.minimize(flat_init)
                 results.append(res)
+                res['init_vals'] = self.unflatten(flat_init, self.num_source2shapes(k))
                 successes+=1
                 # except: # TODO: catch specific exception types
                 #     the_type, the_value, the_traceback = sys.exc_info()
                 #     errors.append((the_type, the_value, the_traceback))
                 #     print(the_type)
-            res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess'], data=results)
+            # res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess', 'iter', 'delta'], data=results)
+            res = pd.DataFrame(results)
             # norm from matlab HNMF code
             res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
             res['num_sources'] = k
-            
             result_dfs.append(res)
 
             t2 = time.time()
@@ -247,7 +248,7 @@ class NewHNMFOptimizer:
         def hvp_(x, v):
             pushfwd = functools.partial(jax.jvp, resid, (x,))
             primals, pullback = jax.vjp(resid, x)
-            out, jvp_prod = jax.jvp(resid, (x,), (v,))
+            out, jvp_prod = pushfwd((v,))
             return pullback(jvp_prod)[0]
 
         def obj(x):
@@ -304,7 +305,7 @@ class NewHNMFOptimizer:
                 #     the_type, the_value, the_traceback = sys.exc_info()
                 #     errors.append((the_type, the_value, the_traceback))
                 #     print(the_type)
-            res = pd.DataFrame(columns=['fval', 'sol', 'grad'], data=results)
+            res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'iter', 'delta'], data=results)
             # norm from matlab HNMF code
             res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
             res['num_sources'] = k

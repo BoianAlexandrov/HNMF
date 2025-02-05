@@ -474,12 +474,25 @@ class TrustRegionOptimizer:
             state = self.update(state)
             # self.log_step(state)
         self.state = state
-        return (
-            state['fval'],
-            state['x'],
-            state['grad'],
-            state['hess'],
-        )
+        return {
+            'fval': state['fval'],
+            'sol': state['x'],
+            'grad': state['grad'],
+            'hess': state['hess'],
+            'iter': state['iter'],
+            'delta': state['delta'],
+        }
+
+    def full_trace_minimize(self, params):
+        states = []
+        state = self.init_state(params, **self.init_kwargs)
+        states.append(state)
+        while not self.converge_cond(state):
+            state = self.update(state)
+            states.append(state)
+            # self.log_step(state)
+        self.state = state
+        return states
 
     def init_state(self, params, **kwargs):
         loss, grad, hess = self.obj_fn(params)

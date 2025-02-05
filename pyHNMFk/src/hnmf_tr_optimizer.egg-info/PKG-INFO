@@ -1,0 +1,10 @@
+Metadata-Version: 2.2
+Name: hnmf-tr-optimizer
+Version: 0.0.1
+Summary: Hybrid-NMFk using trust-region optimization
+Requires-Python: >=3.10
+Requires-Dist: jax==0.4.31
+Requires-Dist: numpy==1.26.4
+Requires-Dist: pandas==2.2.2
+Requires-Dist: scipy==1.14.1
+Requires-Dist: scikit-learn==1.5.1

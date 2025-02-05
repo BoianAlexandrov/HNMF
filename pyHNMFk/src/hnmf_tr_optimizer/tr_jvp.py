@@ -215,11 +215,11 @@ def tr_iteration(x, grad, hvp, lb, ub, theta_max, delta):
     sg = scale_vec*grad
     g_dscaling_vec = jnp.abs(grad) * dv
 
-    def lin_op_(g_dscaling_vec, scale_vec, x):
-        sx = scale_vec*x
-        almost_done = hvp(sx)
+    def lin_op_(g_dscaling_vec, scale_vec, xx):
+        sx = scale_vec*xx
+        almost_done = hvp(x, sx)
         scaled = scale_vec*almost_done
-        return scaled + g_dscaling_vec*x
+        return scaled + g_dscaling_vec*xx
 
     # find the gauss-newton optimal point without matrix multiplication
     shess_func = functools.partial(lin_op_, g_dscaling_vec, scale_vec)
@@ -252,7 +252,11 @@ def tr_iteration(x, grad, hvp, lb, ub, theta_max, delta):
     trt_x = x + trt_s0
 
     trt_subspace = subspace.at[iminbr, :].set(0)
-    trt_subspace = jax.vmap(normalize, 1)(trt_subspace).T
+    #  normalize subspace
+    for ix in range(trt_subspace.shape[1]):
+        # column normalization
+        trt_subspace.at[:, ix].set(normalize(trt_subspace[:, ix]))
+   # trt_subspace = jax.vmap(normalize, 1)(trt_subspace).T
  
     def dummy(trt_x, trt_subspace, sg, delta, lb, ub, scaling, trt_ss0, theta):
         return step_compute(trt_x, trt_subspace, sg, shess_func, delta, lb, ub, scaling, trt_ss0, theta)
@@ -301,11 +305,11 @@ class TrustRegionOptimizer:
         self.converge_cond = lambda state: state['finished']
 
         def update(state):
-            hvp = functools.partial(self.hvp, state['x'])
+            # hvp = functools.partial(self.hvp, state['x'])
             step = tr_iteration(
                 state['x'],
                 state['grad'],
-                hvp,
+                self.hvp,
                 state['lb'],
                 state['ub'],
                 state['theta_max'],
