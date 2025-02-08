@@ -80,18 +80,18 @@ class InitParamsGenerator:
         self.key, subkey1, subkey2, subkey3 = jax.random.split(self.key, 4)
         return (
             (1.0 - 0.1) * jax.random.uniform(subkey1, (num_sources,)) + 0.1,
-            (55.0 - 1.5) * jax.random.uniform(subkey2, (num_sources,)) + 1.5,
-            (15.5 - 0.1) * jax.random.uniform(subkey3, (num_sources,)) + 0.1,
+            (15.0 - 1.5) * jax.random.uniform(subkey2, (num_sources,)) + 1.5,
+            (1.5 - 0.1) * jax.random.uniform(subkey3, (num_sources,)) + 0.1,
         )
 ######################################################################
 
 
-def get_init_params(num_sources):
-    return (
-        (1.0-0.1)*np.random.rand(num_sources) + 0.1,
-        (55.0-1.5)*np.random.rand(num_sources) + 1.5,
-        (15.5-0.1)*np.random.rand(num_sources) + 0.1,
-    )
+# def get_init_params(num_sources):
+#     return (
+#         (1.0-0.1)*np.random.rand(num_sources) + 0.1,
+#         (55.0-1.5)*np.random.rand(num_sources) + 1.5,
+#         (15.5-0.1)*np.random.rand(num_sources) + 0.1,
+#     )
 
 # preprocessing functions to run before clustering
 def clustering_preprocess(res):

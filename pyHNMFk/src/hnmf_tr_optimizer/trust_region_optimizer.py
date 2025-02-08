@@ -392,7 +392,8 @@ class TrustRegionOptimizer:
             state['iter'] = state['iter'] + 1
 
             # check next step for acceptance and update radius
-            loss, grad, hess = obj_fn(state['x_sol'])
+            state['key'], subkey = jax.random.split(state['key'])
+            loss, grad, hess = obj_fn(state['x_sol'], subkey)
             curr_delta = state['delta']
             state['stepsx'] = state['ss'] + state['ss0']
             state['nsx'] = jnp.linalg.norm(state['stepsx'])
@@ -468,24 +469,18 @@ class TrustRegionOptimizer:
             return state
         self.update = jax.jit(update)
 
-    def minimize(self, params):
-        state = self.init_state(params, **self.init_kwargs)
+    def minimize(self, params, sample_key):
+        state = self.init_state(params, sample_key, **self.init_kwargs)
         while not self.converge_cond(state):
             state = self.update(state)
             # self.log_step(state)
         self.state = state
-        return {
-            'fval': state['fval'],
-            'sol': state['x'],
-            'grad': state['grad'],
-            'hess': state['hess'],
-            'iter': state['iter'],
-            'delta': state['delta'],
-        }
+        state['sol'] = state['x']
+        return state
 
-    def full_trace_minimize(self, params):
+    def full_trace_minimize(self, params, sample_key):
         states = []
-        state = self.init_state(params, **self.init_kwargs)
+        state = self.init_state(params, sample_key, **self.init_kwargs)
         states.append(state)
         while not self.converge_cond(state):
             state = self.update(state)
@@ -494,8 +489,9 @@ class TrustRegionOptimizer:
         self.state = state
         return states
 
-    def init_state(self, params, **kwargs):
-        loss, grad, hess = self.obj_fn(params)
+    def init_state(self, params, sample_key, **kwargs):
+        key, subkey = jax.random.split(sample_key)
+        loss, grad, hess = self.obj_fn(params, subkey)
         return {
             'x': params,
             'fval': loss,
@@ -503,6 +499,7 @@ class TrustRegionOptimizer:
             'gnorm': jnp.linalg.norm(grad),
             'hess': hess,
             'iter': 0,
+            'key': key,
             # optimizer params
             'lb': kwargs.get('lb') if kwargs.get('lb') is not None else -jnp.inf*jnp.ones(params.shape),
             'ub': kwargs.get('ub') if kwargs.get('ub') is not None else jnp.inf*jnp.ones(params.shape),

@@ -56,7 +56,9 @@ class HNMFOptimizer:
             constants,
             min_k,
             max_k,
-            nsim
+            nsim,
+            sample_rate=1.0,
+            sample_seed=1337
         ):
         """
         model_fn - residual function
@@ -72,6 +74,8 @@ class HNMFOptimizer:
         self.min_k = min_k
         self.max_k = max_k
         self.nsim = nsim
+        self.sample_rate = sample_rate
+        self.rand_key = jax.random.key(sample_seed)
         self.flatten = flatten
         self.unflatten = unflatten
 
@@ -92,22 +96,24 @@ class HNMFOptimizer:
 
         unflatten_params_fn = functools.partial(self.unflatten, shapes=self.num_source2shapes(k))
 
-        # @jax.jit
-        def flat_resid_fn(flat_params):
+        def flat_resid_fn(flat_params, sample_key):
+            sample_key = jax.lax.stop_gradient(sample_key)
             params = unflatten_params_fn(flat_params)
             args_dict = self.constants.copy()
             for i, k in enumerate(self.input_args):
                 args_dict[k] = inputs[i]
             for i, k in enumerate(self.param_args):
                 args_dict[k] = params[i]
-            return jnp.ravel(observations - self.model_fn(**args_dict))
+            full_resids = jnp.ravel(observations - self.model_fn(**args_dict))
+            n_select = int(self.sample_rate*len(full_resids))
+            return jax.random.choice(sample_key, full_resids, shape=(n_select,), replace=False)
         return flat_resid_fn
 
     def make_obj_func(self, k, inputs, observations):
         resid = self.make_resid_fn(k, inputs, observations)
-        # @jax.jit
-        def obj(x):
-            r, jac_r = value_and_jacfwd(resid, x)
+        def obj(x, sample_key):
+            r, jac_r = value_and_jacfwd(lambda x: resid(x, sample_key), x)
+            # r, jac_r = value_and_jacfwd(resid, x)
             loss = 0.5*jnp.sum(jnp.square(r))
             grad = jnp.matmul(r.T, jac_r)
             hess = jnp.matmul(jac_r.T, jac_r)
@@ -137,46 +143,35 @@ class HNMFOptimizer:
         )
 
     def __call__(self, inputs, observations, opt_options=None):
+        self.results = [] # reset res
         AA = 0 # some normalization factor to be used for AIC calculation later
         for i in range(observations.shape[1]):
             AA += np.sum(observations[:, i]**2)
 
-        result_dfs = []
         errors = []
         for k in range(self.min_k, self.max_k+1):
             ### define optimization object ###
             t1 = time.time()
             opt = self.setup_optimizer(k, inputs, observations, opt_options=opt_options)
 
-            ### run minimization on nsim random inits ###
-            results = []
             successes = 0
             while successes < self.nsim:
+                # run minimization###
                 flat_init, _ = self.flatten(*self.param_generator(k))
-                # try:
-                res = opt.minimize(flat_init)
-                results.append(res)
-                res['init_vals'] = self.unflatten(flat_init, self.num_source2shapes(k))
-                successes+=1
-                # except: # TODO: catch specific exception types
-                #     the_type, the_value, the_traceback = sys.exc_info()
-                #     errors.append((the_type, the_value, the_traceback))
-                #     print(the_type)
-            # res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess', 'iter', 'delta'], data=results)
-            res = pd.DataFrame(results)
-            # norm from matlab HNMF code
-            res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
-            res['num_sources'] = k
-            result_dfs.append(res)
+                res = opt.minimize(flat_init, self.rand_key)
+                self.rand_key = res['key']
 
+                # enrich results data
+                res['init_vals'] = self.unflatten(flat_init, self.num_source2shapes(k))
+                res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
+                res['num_sources'] = k
+                res['sol'] = self.unflatten(res['sol'], self.num_source2shapes(res['num_sources']))
+
+                self.results.append(res)
+                successes+=1
             t2 = time.time()
-            print(f'SIMULATIONS FOR {k} SOURCES TOOK {t2-t1} SECONDS')        
-        all_results = pd.concat(result_dfs)
-        all_results['sol'] = all_results.apply(
-            lambda row: self.unflatten(row['sol'], self.num_source2shapes(row['num_sources'])),
-            axis=1
-        )
-        return all_results
+            print(f'SIMULATIONS FOR {k} SOURCES TOOK {t2-t1} SECONDS')
+        return pd.DataFrame(self.results)
 
 
 class NewHNMFOptimizer:
