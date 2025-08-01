@@ -51,7 +51,7 @@ def cluster_converge_outerloop(Wall, Hall, totalprocess, dist="cosine",
       
     return  processAvg, exposureAvg, processSTE,  exposureSTE, avgSilhouetteCoefficients, clusterSilhouetteCoefficients
 
-def sequential_clustering(Wall, Hall, totalProcesses, iterations=50, dist="cosine", gpu=False, cluster_rand_seq=None):
+def sequential_clustering(Wall, Hall, totalProcesses, iterations=50, dist="cosine", gpu=False, cluster_rand_seq=None, **kwargs):
     
     # create random generators for each iteration
     sub_rand_generator = cluster_rand_seq.spawn(iterations)
@@ -218,7 +218,8 @@ def result_analysis(clust_points, recon, num_resids, num_sources):
         avgsill =  avgSilhouetteCoefficients
         min_Sil= clusterSilhouetteCoefficients.min()
 
-    aic_score = AIC(avgsill, recon, num_resids, num_sources)
+    # aic_score = AIC(avgsill, recon, num_resids, num_sources)
+    aic_score = AIC(min_Sil, recon, num_resids, num_sources)
 
     return pd.DataFrame({
         'num_source': [num_sources],

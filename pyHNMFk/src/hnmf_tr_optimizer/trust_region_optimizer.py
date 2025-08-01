@@ -474,12 +474,13 @@ class TrustRegionOptimizer:
             state = self.update(state)
             # self.log_step(state)
         self.state = state
-        return (
-            state['fval'],
-            state['x'],
-            state['grad'],
-            state['hess'],
-        )
+        return state
+        # return (
+        #     state['fval'],
+        #     state['x'],
+        #     state['grad'],
+        #     state['hess'],
+        # )
 
     def init_state(self, params, **kwargs):
         loss, grad, hess = self.obj_fn(params)

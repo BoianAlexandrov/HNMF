@@ -55,12 +55,14 @@ class HNMFOptimizer:
             constants,
             min_k,
             max_k,
-            nsim
+            nsim,
+            regularizer_fn=None,
         ):
         """
         model_fn - residual function
         param_generator - takes k (# of sources) as input and returns generated/random paramaters
         bound_generator takes k as input and returns (lower_bounds, upper_bounds) of parameters
+        regularizer_fn - takes flat parameters as input and returns (loss, grad, hess) for regularization
         """
         self.model_fn = model_fn
         self.param_generator = param_generator
@@ -71,11 +73,13 @@ class HNMFOptimizer:
         self.min_k = min_k
         self.max_k = max_k
         self.nsim = nsim
+        self.regularizer_fn = regularizer_fn
         self.flatten = flatten
         self.unflatten = unflatten
 
     def num_source2shapes(self, num_sources):
-        sample_input = self.param_generator(num_sources)
+        # sample_input = self.param_generator(num_sources)
+        sample_input, _ = self.bound_generator(num_sources)
         _, input_shapes = self.flatten(*sample_input)
         return input_shapes
 
@@ -105,14 +109,23 @@ class HNMFOptimizer:
     def make_obj_func(self, k, inputs, observations):
         resid = self.make_resid_fn(k, inputs, observations)
         # @jax.jit
-        def obj(x):
-            r, jac_r = value_and_jacfwd(resid, x)
-            loss = 0.5*jnp.sum(jnp.square(r))
-            grad = jnp.matmul(r.T, jac_r)
-            hess = jnp.matmul(jac_r.T, jac_r)
-            return loss, grad, hess
-
-        return obj
+        if self.regularizer_fn is None:
+            def obj(x):
+                r, jac_r = value_and_jacfwd(resid, x)
+                loss = 0.5*jnp.sum(jnp.square(r))
+                grad = jnp.matmul(r.T, jac_r)
+                hess = jnp.matmul(jac_r.T, jac_r)
+                return loss, grad, hess
+            return obj
+        else:
+            def obj_reg(x):
+                r, jac_r = value_and_jacfwd(resid, x)
+                loss = 0.5*jnp.sum(jnp.square(r))
+                grad = jnp.matmul(r.T, jac_r)
+                hess = jnp.matmul(jac_r.T, jac_r)
+                reg_loss, reg_grad, reg_hess = self.regularizer_fn(x) # type: ignore
+                return loss + reg_loss, grad + reg_grad, hess + reg_hess
+            return obj_reg
 
     def setup_optimizer(
             self,
@@ -136,9 +149,10 @@ class HNMFOptimizer:
         )
 
     def __call__(self, inputs, observations, opt_options=None):
-        AA = 0 # some normalization factor to be used for AIC calculation later
-        for i in range(observations.shape[1]):
-            AA += np.sum(observations[:, i]**2)
+        # AA = 0 # some normalization factor to be used for AIC calculation later
+        # for i in range(observations.shape[1]):
+        #     AA += np.sum(observations[:, i]**2)
+        AA = jnp.linalg.norm(observations)
 
         result_dfs = []
         errors = []
@@ -160,7 +174,9 @@ class HNMFOptimizer:
                 #     the_type, the_value, the_traceback = sys.exc_info()
                 #     errors.append((the_type, the_value, the_traceback))
                 #     print(the_type)
-            res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess'], data=results)
+            # res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess'], data=results)
+            res = pd.DataFrame(data=results)
+            res = res.rename({"x": "sol"}, axis=1)
             # norm from matlab HNMF code
             res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
             res['num_sources'] = k

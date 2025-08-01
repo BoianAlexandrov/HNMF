@@ -9,8 +9,8 @@ description = "Hybrid-NMFk using trust-region optimization"
 requires-python = ">=3.10"
 
 dependencies = [
-    "jax==0.4.31",
-    "numpy==2.1.1",
+    "jax",
+    "numpy==1.26.4",
     "pandas==2.2.2",
     "scipy==1.14.1",
     "scikit-learn==1.5.1"
