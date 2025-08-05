@@ -1,6 +1,7 @@
 import functools
 import inspect
 import logging
+from logging import ERROR
 import sys
 import time
 
@@ -8,7 +9,7 @@ import jax
 import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_debug_nans", True)
-from .trust_region_optimizer import TrustRegionOptimizer, ParallelTrustRegionOptimizer
+from .trust_region_optimizer import TrustRegionOptimizer, ParallelTrustRegionOptimizer, tr_minimize, tr_minimize2
 import numpy as np
 import pandas as pd
 
@@ -30,7 +31,7 @@ def unflatten(flat_inputs, shapes):
     return inputs
 
 # quicker calculation for val and jac
-# source: https://github.com/google/jax/pull/762#issuecomment-1002267121
+# source: https://github.com/jax-ml/jax/pull/762#issuecomment-1002267121
 def value_and_jacfwd(f, x):
     pushfwd = functools.partial(jax.jvp, f, (x,))
     basis = jnp.eye(x.size, dtype=x.dtype)
@@ -43,6 +44,18 @@ def value_and_jacrev(f, x):
     jac = jax.vmap(pullback)(basis)
     return y, jac
 
+def value_and_jacfwd2(f, *x):
+    f_ = lambda x0: f(x0, *x[1:])
+    pushfwd = functools.partial(jax.jvp, f_, (x[0],))
+    basis = jnp.eye(x[0].size, dtype=x[0].dtype)
+    y, jac = jax.vmap(pushfwd, out_axes=(None, 1))((basis,))
+    return y, jac
+
+def value_and_jacrev2(f, *x):
+    y, pullback = jax.vjp(f, tuple(*x))
+    basis = jnp.eye(y.size, dtype=y.dtype)
+    jac = jax.vmap(pullback)(basis)
+    return y, jac
 
 class HNMFOptimizer:
     def __init__(
@@ -233,6 +246,153 @@ class ParallelHNMFOptimizer(HNMFOptimizer):
             
             result_dfs.append(res)
 
+            t2 = time.time()
+            print(f'SIMULATIONS FOR {k} SOURCES TOOK {t2-t1} SECONDS')        
+        all_results = pd.concat(result_dfs)
+        all_results['sol'] = all_results.apply(
+            lambda row: self.unflatten(row['sol'], self.num_source2shapes(row['num_sources'])),
+            axis=1
+        )
+        return all_results
+
+class NewHNMFOptimizer(HNMFOptimizer):
+    def make_resid_fn(self, k, inputs):
+        if not isinstance(inputs, tuple):
+            inputs = (inputs,)
+        all_described = list()
+        all_described.extend(self.input_args)
+        all_described.extend(self.param_args)
+        all_described.extend(list(self.constants.keys()))
+        fn_args = inspect.getfullargspec(self.model_fn).args
+        assert all([arg in fn_args for arg in all_described])
+
+        unflatten_params_fn = functools.partial(self.unflatten, shapes=self.num_source2shapes(k))
+
+        # @jax.jit
+        def flat_resid_fn(flat_params, observations):
+            params = unflatten_params_fn(flat_params)
+            args_dict = self.constants.copy()
+            for i, k in enumerate(self.input_args):
+                args_dict[k] = inputs[i]
+            for i, k in enumerate(self.param_args):
+                args_dict[k] = params[i]
+            return jnp.ravel(observations - self.model_fn(**args_dict))
+        return flat_resid_fn
+
+    def make_obj_func(self, k, inputs):
+        resid = self.make_resid_fn(k, inputs)
+        # @jax.jit
+        if self.regularizer_fn is None:
+            def obj(x, observations):
+                resid_jac = jax.jacfwd(resid)
+                r = resid(x, observations)
+                jac_r = resid_jac(x, observations)
+                # r, jac_r = value_and_jacfwd2(resid, x, observations)
+                loss = 0.5*jnp.sum(jnp.square(r))
+                grad = jnp.matmul(r.T, jac_r)
+                hess = jnp.matmul(jac_r.T, jac_r)
+                return loss, grad, hess
+            return obj
+        else:
+            def obj_reg(x, observations):
+                resid_jac = jax.jacfwd(resid)
+                r = resid(x, observations)
+                jac_r = resid_jac(x, observations)
+                # r, jac_r = value_and_jacfwd2(resid, x, observations)
+                loss = 0.5*jnp.sum(jnp.square(r))
+                grad = jnp.matmul(r.T, jac_r)
+                hess = jnp.matmul(jac_r.T, jac_r)
+                reg_loss, reg_grad, reg_hess = self.regularizer_fn(x) # type: ignore
+                return loss + reg_loss, grad + reg_grad, hess + reg_hess
+            return obj_reg
+
+    def __call__(self, inputs, observations, opt_options=None):
+        # AA = 0 # some normalization factor to be used for AIC calculation later
+        # for i in range(observations.shape[1]):
+        #     AA += np.sum(observations[:, i]**2)
+        AA = jnp.linalg.norm(observations)
+
+        result_dfs = []
+        for k in range(self.min_k, self.max_k+1):
+            ### define optimization object ###
+            t1 = time.time()
+
+            ### run minimization on nsim random inits ###
+            results = []
+            successes = 0
+            minimize = jax.jit(tr_minimize2, static_argnames=("obj_fn", "kwargs"))
+            # tr_minimize2(init_params, observations, obj_fn, **kwargs)
+            obj = self.make_obj_func(k, inputs)
+            lb, ub = self.bound_generator(k)
+            lb, _ = self.flatten(*lb)
+            ub, _ = self.flatten(*ub)
+            if opt_options is None:
+                opt_options = {}
+            opt_options['ub'] = ub
+            opt_options['lb'] = lb
+            while successes < self.nsim:
+                flat_init, _ = self.flatten(*self.param_generator(k))
+                # try:
+
+                # obj = functools.partial(obj_, observations=observations)
+                res = minimize(flat_init, observations, obj, **opt_options)
+                results.append(res)
+                successes+=1
+                # except: # TODO: catch specific exception types
+                #     the_type, the_value, the_traceback = sys.exc_info()
+                #     errors.append((the_type, the_value, the_traceback))
+                #     print(the_type)
+            # res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess'], data=results)
+            res = pd.DataFrame(data=results)
+            res = res.rename({"x": "sol"}, axis=1)
+            # norm from matlab HNMF code
+            res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
+            res['num_sources'] = k
+            
+            result_dfs.append(res)
+
+            t2 = time.time()
+            print(f'SIMULATIONS FOR {k} SOURCES TOOK {t2-t1} SECONDS')        
+        all_results = pd.concat(result_dfs)
+        all_results['sol'] = all_results.apply(
+            lambda row: self.unflatten(row['sol'], self.num_source2shapes(row['num_sources'])),
+            axis=1
+        )
+        return all_results
+
+class PerturbanceHNMFOptimizer(NewHNMFOptimizer):
+    def __call__(self, inputs, observations_list, opt_options=None):
+        assert len(observations_list) == self.nsim, "PerturbanceHNMFOptimizer only supports one set of observations"
+        AA = jnp.linalg.norm(observations_list[0]) # just use first observation for norm
+        result_dfs = []
+        for k in range(self.min_k, self.max_k+1):
+            t1 = time.time()
+            results = []
+            minimize = jax.jit(tr_minimize2, static_argnames=("obj_fn", "kwargs"))
+            obj = self.make_obj_func(k, inputs)
+            lb, ub = self.bound_generator(k)
+            lb, _ = self.flatten(*lb)
+            ub, _ = self.flatten(*ub)
+            if opt_options is None:
+                opt_options = {}
+            opt_options['ub'] = ub
+            opt_options['lb'] = lb
+            # while successes < self.nsim:
+            for observations in observations_list:
+                flat_init, _ = self.flatten(*self.param_generator(k))
+                res = minimize(flat_init, observations, obj, **opt_options)
+                results.append(res)
+                # except: # TODO: catch specific exception types
+                #     the_type, the_value, the_traceback = sys.exc_info()
+                #     errors.append((the_type, the_value, the_traceback))
+                #     print(the_type)
+            # res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess'], data=results)
+            res = pd.DataFrame(data=results)
+            res = res.rename({"x": "sol"}, axis=1)
+            # norm from matlab HNMF code
+            res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
+            res['num_sources'] = k
+            result_dfs.append(res)
             t2 = time.time()
             print(f'SIMULATIONS FOR {k} SOURCES TOOK {t2-t1} SECONDS')        
         all_results = pd.concat(result_dfs)

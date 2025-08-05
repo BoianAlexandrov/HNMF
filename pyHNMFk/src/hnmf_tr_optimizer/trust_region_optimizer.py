@@ -590,3 +590,324 @@ class ParallelTrustRegionOptimizer(TrustRegionOptimizer):
             (state['fval'], state['x'], state['grad'], state['hess'])
             for state in results
         ]
+
+
+
+
+
+### optimizer functions ###
+
+def tr_init_state(params, obj_fn, **kwargs):
+    loss, grad, hess = obj_fn(params)
+    return {
+        'x': params,
+        'fval': loss,
+        'grad': grad,
+        'gnorm': jnp.linalg.norm(grad),
+        'hess': hess,
+        'iter': 0,
+        # optimizer params
+        'lb': kwargs.get('lb') if kwargs.get('lb') is not None else -jnp.inf*jnp.ones(params.shape),
+        'ub': kwargs.get('ub') if kwargs.get('ub') is not None else jnp.inf*jnp.ones(params.shape),
+        'maxiter': kwargs.get('maxiter', 1500),
+        'fatol': kwargs.get('fatol', 1e-8),
+        'frtol': kwargs.get('frtol', 1e-8),
+        'xtol': kwargs.get('xtol', 0.0),
+        'gatol': kwargs.get('gatol', 1e-6),
+        'grtol': kwargs.get('grtol', 0.0),
+        'theta_max': kwargs.get('theta_max', 0.95),
+        'mu': kwargs.get('mu', 0.25),
+        'eta': kwargs.get('eta', 0.75),
+        'gamma1': kwargs.get('gamma1', 0.25),
+        'gamma2': kwargs.get('gamma2', 2.0),
+        # step values
+        'x_sol': jnp.nan,
+        'f_old': loss,
+        'f_diff': 0.0,
+        'delta': kwargs.get('delta', 1.0),
+        'tr_ratio': 0.0,
+        'dv': jnp.nan,
+        'qpval': jnp.nan,
+        'type': -1,
+        's': jnp.nan,
+        's0': jnp.nan,
+        'ss': jnp.nan,
+        'ss0': jnp.nan,
+        'stepsx': jnp.nan,
+        'nsx': jnp.nan,
+        'normdx': jnp.nan,
+        'accepted': False,
+        'converged': False,
+        'finished': False,
+    }
+
+def tr_update(state, obj_fn):
+    step = tr_iteration(
+        state['x'],
+        state['grad'],
+        state['hess'],
+        state['lb'],
+        state['ub'],
+        state['theta_max'],
+        state['delta']
+    )
+    state['x_sol'] = step['x_new']
+    state['dv'] = step['dv']
+    state['qpval'] = step['qpval']
+    state['type'] = step['type']
+    state['s'] = step['s']
+    state['s0'] = step['s0']
+    state['ss'] = step['ss']
+    state['ss0'] = step['ss0']
+
+    state['iter'] = state['iter'] + 1
+
+    # check next step for acceptance and update radius
+    loss, grad, hess = obj_fn(state['x_sol'])
+    curr_delta = state['delta']
+    state['stepsx'] = state['ss'] + state['ss0']
+    state['nsx'] = jnp.linalg.norm(state['stepsx'])
+    state['normdx'] = jnp.linalg.norm(state['s'] + state['s0'])
+    state['f_diff'] = jnp.abs(loss - state['fval'])
+
+    def infinite_case(state, *args):
+        state['tr_ratio'] = 0.0
+        state['delta'] = jnp.nanmin(
+            jnp.array([state['delta'] * state['gamma1'], state['nsx'] / 4])
+        )
+        state['accepted'] = False
+        return state
+
+    def finite_case(state, loss, grad, curr_delta):
+        # state, loss, grad, curr_delta = input_tuple
+        aug = 0.5 * jnp.dot(state['stepsx'], state['dv'] * jnp.abs(grad) * state['stepsx'])
+        actual_decrease = state['fval'] - loss - aug
+        predicted_decrease = -state['qpval']
+        state['tr_ratio'] = jnp.where(predicted_decrease <= 0.0, 0.0, actual_decrease/predicted_decrease)
+        increse_cond = jnp.logical_and(
+            jnp.greater_equal(state['tr_ratio'], state['eta']),
+            jnp.logical_not(jnp.less(state['nsx'], curr_delta * 0.9))
+        )
+        decrease_cond = jnp.less_equal(state['tr_ratio'], state['mu'])
+        skip_cond = jnp.logical_and(
+            jnp.less(state['mu'], state['tr_ratio']),
+            jnp.less(state['tr_ratio'], state['eta'])
+        )
+        ind = jnp.argmax(jnp.array([increse_cond, decrease_cond, skip_cond]))
+        state['delta'] = jax.lax.switch(
+            ind,
+            [
+                lambda state: state['gamma2'] * state['delta'],
+                lambda state: jnp.nanmin(jnp.array([state['delta'] * state['gamma1'], state['nsx'] / 4])),
+                lambda state: state['delta'],
+            ],
+            state
+        )
+
+        state['accepted'] = state['tr_ratio'] > 0.0
+        return state
+
+    state = jax.lax.cond(
+        jnp.isfinite(loss),
+        finite_case,
+        infinite_case,
+        state, loss, grad, curr_delta
+    )
+
+    state['f_old'], state['x'], state['fval'], state['grad'], state['hess'], state['gnorm'] = jax_multi_where(
+        state['accepted'],
+        (state['fval'], state['x_sol'], loss, grad, hess, jnp.linalg.norm(state['grad'])),
+        (state['f_old'], state['x'], state['fval'], state['grad'], state['hess'], state['gnorm'])
+    )
+
+    state['converged'] = jnp.any(jnp.array([
+        jnp.logical_and(
+            jnp.greater(state['tr_ratio'], state['mu']),
+            jnp.less(state['f_diff'], state['fatol'] + state['frtol'] * state['f_old'])
+        ),
+        jnp.logical_and(jnp.greater(state['iter'], 1), jnp.less(state['nsx'], state['xtol'])),
+        jnp.less_equal(state['gnorm'], state['gatol']),
+        jnp.less_equal(state['gnorm'], state['grtol'] * jnp.abs(state['f_old']))
+    ]))
+
+    state['finished'] = jnp.any(jnp.array([
+        state['converged'],
+        jnp.greater_equal(state['iter'], state['maxiter']),
+        jnp.less_equal(state['delta'], np_eps)
+    ]))
+
+    return state
+
+tr_converge_cond = lambda state: jnp.logical_not(state['finished'])
+
+import functools
+def tr_minimize(params, obj_fn, **kwargs):
+    state = tr_init_state(params, obj_fn, **kwargs)
+    # tr_update
+    tr_update_fn = functools.partial(
+        tr_update,
+        obj_fn=obj_fn
+    )
+    state2 = tr_update_fn(state)
+    return jax.lax.while_loop(tr_converge_cond, tr_update_fn, state2)
+
+
+### optimizer functions 2 ###
+
+def tr_init_state2(params, loss, grad, hess, observations, **kwargs):
+    return {
+        'x': params,
+        'fval': loss,
+        'grad': grad,
+        'observations': observations,
+        'gnorm': jnp.linalg.norm(grad),
+        'hess': hess,
+        'new_fval': loss,
+        'new_grad': grad,
+        'new_hess': hess,
+        'iter': 0,
+        # optimizer params
+        'lb': kwargs.get('lb') if kwargs.get('lb') is not None else -jnp.inf*jnp.ones(params.shape),
+        'ub': kwargs.get('ub') if kwargs.get('ub') is not None else jnp.inf*jnp.ones(params.shape),
+        'maxiter': kwargs.get('maxiter', 1500),
+        'fatol': kwargs.get('fatol', 1e-8),
+        'frtol': kwargs.get('frtol', 1e-8),
+        'xtol': kwargs.get('xtol', 0.0),
+        'gatol': kwargs.get('gatol', 1e-6),
+        'grtol': kwargs.get('grtol', 0.0),
+        'theta_max': kwargs.get('theta_max', 0.95),
+        'mu': kwargs.get('mu', 0.25),
+        'eta': kwargs.get('eta', 0.75),
+        'gamma1': kwargs.get('gamma1', 0.25),
+        'gamma2': kwargs.get('gamma2', 2.0),
+        # step values
+        'x_sol': params,
+        'f_old': loss,
+        'f_diff': 0.0,
+        'delta': kwargs.get('delta', 1.0),
+        'tr_ratio': 0.0,
+        'dv': jnp.nan,
+        'qpval': jnp.nan,
+        'type': -1,
+        's': jnp.nan,
+        's0': jnp.nan,
+        'ss': jnp.nan,
+        'ss0': jnp.nan,
+        'stepsx': jnp.nan,
+        'nsx': jnp.nan,
+        'normdx': jnp.nan,
+        'accepted': False,
+        'converged': False,
+        'finished': False,
+    }
+
+def tr_update2(state):
+    step = tr_iteration(
+        state['x'],
+        state['grad'],
+        state['hess'],
+        state['lb'],
+        state['ub'],
+        state['theta_max'],
+        state['delta']
+    )
+    state['x_sol'] = step['x_new']
+    state['dv'] = step['dv']
+    state['qpval'] = step['qpval']
+    state['type'] = step['type']
+    state['s'] = step['s']
+    state['s0'] = step['s0']
+    state['ss'] = step['ss']
+    state['ss0'] = step['ss0']
+
+    state['iter'] = state['iter'] + 1
+
+    loss, grad, hess = state['new_fval'], state['new_grad'], state['new_hess']
+
+    # check next step for acceptance and update radius
+    curr_delta = state['delta']
+    state['stepsx'] = state['ss'] + state['ss0']
+    state['nsx'] = jnp.linalg.norm(state['stepsx'])
+    state['normdx'] = jnp.linalg.norm(state['s'] + state['s0'])
+    state['f_diff'] = jnp.abs(loss - state['fval'])
+
+    def infinite_case(state, *args):
+        state['tr_ratio'] = 0.0
+        state['delta'] = jnp.nanmin(
+            jnp.array([state['delta'] * state['gamma1'], state['nsx'] / 4])
+        )
+        state['accepted'] = False
+        return state
+
+    def finite_case(state, loss, grad, curr_delta):
+        # state, loss, grad, curr_delta = input_tuple
+        aug = 0.5 * jnp.dot(state['stepsx'], state['dv'] * jnp.abs(grad) * state['stepsx'])
+        actual_decrease = state['fval'] - loss - aug
+        predicted_decrease = -state['qpval']
+        state['tr_ratio'] = jnp.where(predicted_decrease <= 0.0, 0.0, actual_decrease/predicted_decrease)
+        increse_cond = jnp.logical_and(
+            jnp.greater_equal(state['tr_ratio'], state['eta']),
+            jnp.logical_not(jnp.less(state['nsx'], curr_delta * 0.9))
+        )
+        decrease_cond = jnp.less_equal(state['tr_ratio'], state['mu'])
+        skip_cond = jnp.logical_and(
+            jnp.less(state['mu'], state['tr_ratio']),
+            jnp.less(state['tr_ratio'], state['eta'])
+        )
+        ind = jnp.argmax(jnp.array([increse_cond, decrease_cond, skip_cond]))
+        state['delta'] = jax.lax.switch(
+            ind,
+            [
+                lambda state: state['gamma2'] * state['delta'],
+                lambda state: jnp.nanmin(jnp.array([state['delta'] * state['gamma1'], state['nsx'] / 4])),
+                lambda state: state['delta'],
+            ],
+            state
+        )
+
+        state['accepted'] = state['tr_ratio'] > 0.0
+        return state
+
+    state = jax.lax.cond(
+        jnp.isfinite(loss),
+        finite_case,
+        infinite_case,
+        state, loss, grad, curr_delta
+    )
+
+    state['f_old'], state['x'], state['fval'], state['grad'], state['hess'], state['gnorm'] = jax_multi_where(
+        state['accepted'],
+        (state['fval'], state['x_sol'], loss, grad, hess, jnp.linalg.norm(state['grad'])),
+        (state['f_old'], state['x'], state['fval'], state['grad'], state['hess'], state['gnorm'])
+    )
+
+    state['converged'] = jnp.any(jnp.array([
+        jnp.logical_and(
+            jnp.greater(state['tr_ratio'], state['mu']),
+            jnp.less(state['f_diff'], state['fatol'] + state['frtol'] * state['f_old'])
+        ),
+        jnp.logical_and(jnp.greater(state['iter'], 1), jnp.less(state['nsx'], state['xtol'])),
+        jnp.less_equal(state['gnorm'], state['gatol']),
+        jnp.less_equal(state['gnorm'], state['grtol'] * jnp.abs(state['f_old']))
+    ]))
+
+    state['finished'] = jnp.any(jnp.array([
+        state['converged'],
+        jnp.greater_equal(state['iter'], state['maxiter']),
+        jnp.less_equal(state['delta'], np_eps)
+    ]))
+
+    return state
+
+
+def tr_minimize2(init_params, observations, obj_fn, **kwargs):
+    loss, grad, hess = obj_fn(init_params, observations)
+    state = tr_init_state2(init_params, loss, grad, hess, observations, **kwargs)
+
+    def body_fn(state):
+        state['new_fval'], state['new_grad'], state['new_hess'] = obj_fn(state['x_sol'], state['observations'])
+        return tr_update2(state)
+
+    state2 = body_fn(state)
+    return jax.lax.while_loop(tr_converge_cond, body_fn, state2)
+
