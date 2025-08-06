@@ -781,7 +781,7 @@ def tr_init_state2(params, loss, grad, hess, observations, **kwargs):
         'gamma1': kwargs.get('gamma1', 0.25),
         'gamma2': kwargs.get('gamma2', 2.0),
         # step values
-        'x_sol': params,
+        'x_sol': jnp.nan,
         'f_old': loss,
         'f_diff': 0.0,
         'delta': kwargs.get('delta', 1.0),
@@ -801,7 +801,7 @@ def tr_init_state2(params, loss, grad, hess, observations, **kwargs):
         'finished': False,
     }
 
-def tr_update2(state):
+def tr_update2(state, obj_fn):
     step = tr_iteration(
         state['x'],
         state['grad'],
@@ -822,7 +822,8 @@ def tr_update2(state):
 
     state['iter'] = state['iter'] + 1
 
-    loss, grad, hess = state['new_fval'], state['new_grad'], state['new_hess']
+    # loss, grad, hess = state['new_fval'], state['new_grad'], state['new_hess']
+    loss, grad, hess = obj_fn(state['x_sol'], state['observations'])
 
     # check next step for acceptance and update radius
     curr_delta = state['delta']
@@ -903,10 +904,11 @@ def tr_update2(state):
 def tr_minimize2(init_params, observations, obj_fn, **kwargs):
     loss, grad, hess = obj_fn(init_params, observations)
     state = tr_init_state2(init_params, loss, grad, hess, observations, **kwargs)
+    body_fn = functools.partial(tr_update2, obj_fn=obj_fn)
 
-    def body_fn(state):
-        state['new_fval'], state['new_grad'], state['new_hess'] = obj_fn(state['x_sol'], state['observations'])
-        return tr_update2(state)
+    # def body_fn(state):
+    #     state['new_fval'], state['new_grad'], state['new_hess'] = obj_fn(state['x_sol'], state['observations'])
+    #     return tr_update2(state)
 
     state2 = body_fn(state)
     return jax.lax.while_loop(tr_converge_cond, body_fn, state2)

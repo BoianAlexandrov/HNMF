@@ -255,6 +255,61 @@ class ParallelHNMFOptimizer(HNMFOptimizer):
         )
         return all_results
 
+class RedoHNMFOptimizer(HNMFOptimizer):
+    def __call__(self, inputs, observations, opt_options=None):
+        # AA = 0 # some normalization factor to be used for AIC calculation later
+        # for i in range(observations.shape[1]):
+        #     AA += np.sum(observations[:, i]**2)
+        AA = jnp.linalg.norm(observations)
+
+        result_dfs = []
+        for k in range(self.min_k, self.max_k+1):
+            ### define optimization object ###
+            t1 = time.time()
+
+            ### run minimization on nsim random inits ###
+            results = []
+            successes = 0
+            minimize = jax.jit(tr_minimize, static_argnames=("obj_fn", "kwargs"))
+            # tr_minimize2(init_params, observations, obj_fn, **kwargs)
+            obj = self.make_obj_func(k, inputs, observations)
+            lb, ub = self.bound_generator(k)
+            lb, _ = self.flatten(*lb)
+            ub, _ = self.flatten(*ub)
+            if opt_options is None:
+                opt_options = {}
+            opt_options['ub'] = ub
+            opt_options['lb'] = lb
+            while successes < self.nsim:
+                flat_init, _ = self.flatten(*self.param_generator(k))
+                # try:
+
+                # obj = functools.partial(obj_, observations=observations)
+                res = minimize(flat_init, obj, **opt_options)
+                results.append(res)
+                successes+=1
+                # except: # TODO: catch specific exception types
+                #     the_type, the_value, the_traceback = sys.exc_info()
+                #     errors.append((the_type, the_value, the_traceback))
+                #     print(the_type)
+            # res = pd.DataFrame(columns=['fval', 'sol', 'grad', 'hess'], data=results)
+            res = pd.DataFrame(data=results)
+            res = res.rename({"x": "sol"}, axis=1)
+            # norm from matlab HNMF code
+            res['normF'] = np.sqrt((res['fval'].apply(float)/AA))*100
+            res['num_sources'] = k
+            
+            result_dfs.append(res)
+
+            t2 = time.time()
+            print(f'SIMULATIONS FOR {k} SOURCES TOOK {t2-t1} SECONDS')        
+        all_results = pd.concat(result_dfs)
+        all_results['sol'] = all_results.apply(
+            lambda row: self.unflatten(row['sol'], self.num_source2shapes(row['num_sources'])),
+            axis=1
+        )
+        return all_results
+
 class NewHNMFOptimizer(HNMFOptimizer):
     def make_resid_fn(self, k, inputs):
         if not isinstance(inputs, tuple):
