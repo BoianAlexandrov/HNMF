@@ -199,6 +199,13 @@ def AIC(sill_avg, recon, num_resids, num_sources, sill_cutoff=0.7):
         aic = np.inf
     return aic
 
+def AIC2(sill_avg, recon, num_resids, num_sources, sill_cutoff=0.7):
+    if sill_avg > sill_cutoff:
+        aic = 2*num_sources + 2*math.log(recon/num_resids)
+    else:
+        aic = np.inf
+    return aic
+
 def result_analysis(clust_points, recon, num_resids, num_sources):
     # num_sources = res['num_sources'].iloc[0]
     # points = res['points'].sum()
@@ -219,7 +226,7 @@ def result_analysis(clust_points, recon, num_resids, num_sources):
         min_Sil= clusterSilhouetteCoefficients.min()
 
     # aic_score = AIC(avgsill, recon, num_resids, num_sources)
-    aic_score = AIC(min_Sil, recon, num_resids, num_sources)
+    aic_score = AIC2(min_Sil, recon, num_resids, num_sources)
 
     return pd.DataFrame({
         'num_source': [num_sources],

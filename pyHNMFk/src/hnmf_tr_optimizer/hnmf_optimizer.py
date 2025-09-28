@@ -80,7 +80,11 @@ class HNMFOptimizer:
         self.model_fn = model_fn
         self.param_generator = param_generator
         self.bound_generator = bound_generator
+        if not isinstance(input_args, tuple):
+            raise ValueError("`input_args` must be a tuple")
         self.input_args = input_args
+        if not isinstance(param_args, tuple):
+            raise ValueError("`input_args` must be a tuple")
         self.param_args = param_args
         self.constants = constants
         self.min_k = min_k
@@ -160,6 +164,9 @@ class HNMFOptimizer:
             options=opt_options,
             verbose = log_level
         )
+
+    def reset_param_generator(self, param_generator):
+        self.param_generator = param_generator
 
     def __call__(self, inputs, observations, opt_options=None):
         # AA = 0 # some normalization factor to be used for AIC calculation later
@@ -311,6 +318,56 @@ class RedoHNMFOptimizer(HNMFOptimizer):
         return all_results
 
 class NewHNMFOptimizer(HNMFOptimizer):
+    def __init__(
+            self,
+            model_fn,
+            param_generator,
+            bound_generator,
+            input_args,
+            param_args,
+            constants,
+            min_k,
+            max_k,
+            nsim,
+            regularizer_fn=None,
+        ):
+        super().__init__(
+            model_fn,
+            param_generator,
+            bound_generator,
+            input_args,
+            param_args,
+            constants,
+            min_k,
+            max_k,
+            nsim,
+            regularizer_fn=regularizer_fn
+        )
+        self.minimize = jax.jit(tr_minimize2, static_argnames=("obj_fn", "kwargs"))
+        self.obj_fn_cache = {}
+        self.inputs_cache = {}
+    
+    def get_cached_obj_fn(self, k, inputs):
+        cache_miss = False
+        obj = self.obj_fn_cache.get(k)
+        prev_inputs = self.inputs_cache.get(k)
+
+        if obj is None:
+            cache_miss = True
+        else:
+            for prev, curr in zip(prev_inputs, inputs): # type: ignore
+                if not jnp.allclose(prev, curr):
+                    cache_miss = True
+                    break
+
+        if cache_miss:
+            obj = self.make_obj_func(k, inputs)
+            self.obj_fn_cache[k] = obj
+            self.inputs_cache[k] = inputs
+
+        return obj
+
+
     def make_resid_fn(self, k, inputs):
         if not isinstance(inputs, tuple):
             inputs = (inputs,)
@@ -334,6 +391,7 @@ class NewHNMFOptimizer(HNMFOptimizer):
             return jnp.ravel(observations - self.model_fn(**args_dict))
         return flat_resid_fn
 
+    # @functools.lru_cache
     def make_obj_func(self, k, inputs):
         resid = self.make_resid_fn(k, inputs)
         # @jax.jit
@@ -375,9 +433,10 @@ class NewHNMFOptimizer(HNMFOptimizer):
             ### run minimization on nsim random inits ###
             results = []
             successes = 0
-            minimize = jax.jit(tr_minimize2, static_argnames=("obj_fn", "kwargs"))
+            # minimize = jax.jit(tr_minimize2, static_argnames=("obj_fn", "kwargs"))
             # tr_minimize2(init_params, observations, obj_fn, **kwargs)
-            obj = self.make_obj_func(k, inputs)
+            # obj = self.make_obj_func(k, inputs)
+            obj = self.get_cached_obj_fn(k, inputs)
             lb, ub = self.bound_generator(k)
             lb, _ = self.flatten(*lb)
             ub, _ = self.flatten(*ub)
@@ -390,7 +449,7 @@ class NewHNMFOptimizer(HNMFOptimizer):
                 # try:
 
                 # obj = functools.partial(obj_, observations=observations)
-                res = minimize(flat_init, observations, obj, **opt_options)
+                res = self.minimize(flat_init, observations, obj, **opt_options)
                 results.append(res)
                 successes+=1
                 # except: # TODO: catch specific exception types
@@ -417,14 +476,15 @@ class NewHNMFOptimizer(HNMFOptimizer):
 
 class PerturbanceHNMFOptimizer(NewHNMFOptimizer):
     def __call__(self, inputs, observations_list, opt_options=None):
-        assert len(observations_list) == self.nsim, "PerturbanceHNMFOptimizer only supports one set of observations"
+        assert len(observations_list) == self.nsim, "PerturbanceHNMFOptimizer requires set of observations to be of size nsim"
         AA = jnp.linalg.norm(observations_list[0]) # just use first observation for norm
         result_dfs = []
         for k in range(self.min_k, self.max_k+1):
             t1 = time.time()
             results = []
-            minimize = jax.jit(tr_minimize2, static_argnames=("obj_fn", "kwargs"))
-            obj = self.make_obj_func(k, inputs)
+            # minimize = jax.jit(tr_minimize2, static_argnames=("obj_fn", "kwargs"))
+            # obj = self.make_obj_func(k, inputs)
+            obj = self.get_cached_obj_fn(k, inputs)
             lb, ub = self.bound_generator(k)
             lb, _ = self.flatten(*lb)
             ub, _ = self.flatten(*ub)
@@ -435,7 +495,7 @@ class PerturbanceHNMFOptimizer(NewHNMFOptimizer):
             # while successes < self.nsim:
             for observations in observations_list:
                 flat_init, _ = self.flatten(*self.param_generator(k))
-                res = minimize(flat_init, observations, obj, **opt_options)
+                res = self.minimize(flat_init, observations, obj, **opt_options)
                 results.append(res)
                 # except: # TODO: catch specific exception types
                 #     the_type, the_value, the_traceback = sys.exc_info()
