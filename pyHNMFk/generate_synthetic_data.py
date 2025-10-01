@@ -78,27 +78,7 @@ def prep_data_g2(datafile):
     return q, t, g2_minus1_obs
 
 # import some experimental data
-q, t, observations_100 = prep_data("exp_data/stock_100nm.csv")
-q, t, observations_200 = prep_data("exp_data/stock_200nm.csv")
-q, t, observations_500 = prep_data("exp_data/stock_500nm.csv")
-q, t, observations_1000 = prep_data("exp_data/stock_1000nm.csv")
-q, t, mix_1 = prep_data("exp_data/mix_1.csv")
-q, t, mix_2 = prep_data("exp_data/mix_2.csv")
-q, t, mix_3 = prep_data("exp_data/mix_3.csv")
-q, t, mix_4 = prep_data("exp_data/mix_4.csv")
-
-q, t, observations_100_g2 = prep_data_g2("exp_data/stock_100nm.csv")
-q, t, observations_200_g2 = prep_data_g2("exp_data/stock_200nm.csv")
-q, t, observations_500_g2 = prep_data_g2("exp_data/stock_500nm.csv")
-q, t, observations_1000_g2 = prep_data_g2("exp_data/stock_1000nm.csv")
-q, t, mix_2_g2 = prep_data_g2("exp_data/mix_2.csv")
-q, t, mix_1_g2 = prep_data_g2("exp_data/mix_1.csv")
-q, t, mix_3_g2 = prep_data_g2("exp_data/mix_3.csv")
-q, t, mix_4_g2 = prep_data_g2("exp_data/mix_4.csv")
-
-
-mix_avg_g2 = jnp.mean(jnp.stack([mix_1_g2, mix_2_g2, mix_3_g2, mix_4_g2]), axis=0)
-
+q, t, mix_1 = prep_data("exp_data/stock_100nm.csv")
 
 process_res_dirac = functools.partial(process_res_dirac_, obs_size=mix_1.size)
 process_res_std = functools.partial(process_res_std_, obs_size=mix_1.size)
@@ -145,7 +125,7 @@ scaled_diff_coefs = _diff_coefs / SCALING_CONST
 
 amplitude_pairs = [[0.2, 0.8], [0.5, 0.5], [0.3, 0.7]]
 mean_params = scaled_diff_coefs.tolist()
-std_dev_params = jnp.linspace(5e-8, 1e-5, 6).tolist()
+std_dev_params = jnp.linspace(5e-3, 1e-0, 6).tolist()
 
 # Generate and filter the distributions
 valid_params = generate_and_filter_distributions(

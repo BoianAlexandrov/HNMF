@@ -90,7 +90,6 @@ def l_statistic2(full_sols, clust_info, observations, q, t, sill_threshold=0.6, 
                 n_opt = k
     return n_opt, p_values, errors
 
-# %%
 # import some experimental data
 def prep_data(datafile):
     df = pd.read_csv(datafile, delimiter='\t', header=None)
@@ -401,12 +400,6 @@ class InitParamFeeder:
 #         pickle.dump(final_clust_sols, f)
 
 #     print(f"(no-noise) Pair {i} done\n\n")
-clean_obs_list = jnp.array(data['clean_obs'])
-noisy_obs_list = jnp.array(data['noisy_obs'])
-valid_params = jnp.array(data['params'])
-noise_errors = jnp.array(data['noise_errors'])
-snrs = jnp.array(data['snrs'])
-gen_beta = 0.7
 
 import sys
 from pathlib import Path

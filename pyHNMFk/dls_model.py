@@ -37,7 +37,8 @@ def normal_distribution(possible_D, amp, mu, sig):
 
 ### models
 
-SCALING_CONST = 2.45e-7
+# SCALING_CONST = 2.45e-7
+SCALING_CONST = 2.45e-12
 
 
 ######### Normal model ##########
