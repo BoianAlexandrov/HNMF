@@ -492,27 +492,7 @@ def l_statistic2(full_sols, clust_info, observations, q, t, sill_threshold=0.6, 
 
 # %%
 # import some experimental data
-q, t, observations_100 = prep_data("~/repos/DLS/Experimental_data_083122/stock_100nm.csv")
-q, t, observations_200 = prep_data("~/repos/DLS/Experimental_data_083122/stock_200nm.csv")
-q, t, observations_500 = prep_data("~/repos/DLS/Experimental_data_083122/stock_500nm.csv")
-q, t, observations_1000 = prep_data("~/repos/DLS/Experimental_data_083122/stock_1000nm.csv")
-q, t, mix_1 = prep_data("~/repos/DLS/Experimental_data_083122/mix_1.csv")
-q, t, mix_2 = prep_data("~/repos/DLS/Experimental_data_083122/mix_2.csv")
-q, t, mix_3 = prep_data("~/repos/DLS/Experimental_data_083122/mix_3.csv")
-q, t, mix_4 = prep_data("~/repos/DLS/Experimental_data_083122/mix_4.csv")
-
-q, t, observations_100_g2 = prep_data_g2("~/repos/DLS/Experimental_data_083122/stock_100nm.csv")
-q, t, observations_200_g2 = prep_data_g2("~/repos/DLS/Experimental_data_083122/stock_200nm.csv")
-q, t, observations_500_g2 = prep_data_g2("~/repos/DLS/Experimental_data_083122/stock_500nm.csv")
-q, t, observations_1000_g2 = prep_data_g2("~/repos/DLS/Experimental_data_083122/stock_1000nm.csv")
-q, t, mix_2_g2 = prep_data_g2("~/repos/DLS/Experimental_data_083122/mix_2.csv")
-q, t, mix_1_g2 = prep_data_g2("~/repos/DLS/Experimental_data_083122/mix_1.csv")
-q, t, mix_3_g2 = prep_data_g2("~/repos/DLS/Experimental_data_083122/mix_3.csv")
-q, t, mix_4_g2 = prep_data_g2("~/repos/DLS/Experimental_data_083122/mix_4.csv")
-
-
-mix_avg_g2 = jnp.mean(jnp.stack([mix_1_g2, mix_2_g2, mix_3_g2, mix_4_g2]), axis=0)
-
+q, t, mix_1 = prep_data("exp_data/mix_1.csv")
 
 process_res_dirac = functools.partial(process_res_dirac_, obs_size=mix_1.size)
 process_res_std = functools.partial(process_res_std_, obs_size=mix_1.size)
