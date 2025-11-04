@@ -16,7 +16,7 @@ module load parallel
 module load miniconda3
 pip install .
 
-TOTAL_OBS=104
+TOTAL_OBS=105
 BATCH_SIZE=64
 
 # Calculate start and end indices for this batch
