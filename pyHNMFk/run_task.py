@@ -7,6 +7,7 @@ import itertools
 import jax.numpy as jnp
 import jax
 jax.config.update("jax_platforms", "cpu")
+jax.config.update("jax_enable_x64", True)
 # set cache size to 1GB
 jax.config.update("jax_compilation_cache_max_size", 2**30 - 1)
 
@@ -129,7 +130,7 @@ process_res_std_g1 = functools.partial(process_res_std_g1_, obs_size=dummy_data.
 process_res_normal = functools.partial(process_res_normal_, obs_size=dummy_data.size)
 
 import numpy as np
-data = np.load("synthetic_data.npz", allow_pickle=True)
+data = np.load("synthetic_data2.npz", allow_pickle=True)
 clean_obs_list = jnp.array(data['clean_obs'])
 noisy_obs_list = jnp.array(data['noisy_obs'])
 valid_params = jnp.array(data['params'])
@@ -191,11 +192,9 @@ gen_beta = 0.7
 
 
 
-# # %%
 # rilt_sols_list = []
 
 
-# # %%
 # rand_key = jax.random.key(808)
 # for i in range(len(rilt_sols_list), len(noisy_obs_list)):
 #     # if i > 3:
@@ -217,7 +216,6 @@ gen_beta = 0.7
 # new_res = rilt_sols_list[0]
 
 
-# # %%
 # rand_key = jax.random.key(811)
 # for i in range(len(rilt_sols_list), len(noisy_obs_list)):
 #     if i > 3:
@@ -241,7 +239,6 @@ gen_beta = 0.7
 # perturbed_res = rilt_sols_list[0]
 
 
-# %%
 # set up the multi-phase optimization
 
 # optimizer_dirac_single = HNMFOptimizer(
@@ -457,7 +454,7 @@ def process_observation(index, output_dir="results"):
     Path(output_dir).mkdir(exist_ok=True)
     result = {
         'index': i,
-        'final_full_sol': final_g2_sols,
+        # 'final_full_sol': final_g2_sols,
         'final_clust_sol': final_clust_sol
     }
     
