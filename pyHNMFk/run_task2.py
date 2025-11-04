@@ -731,92 +731,6 @@ print(f"average SNR: {jnp.average(jnp.array(snrs))}")
 
 
 # %%
-clean_obs_list[10]
-
-# %%
-# visualize a couple noisy observations
-
-# viz_num_pairs = 4
-viz_num_pairs = len(noisy_obs_list)
-
-plt.clf()
-fig, axs = plt.subplots(viz_num_pairs, 2, figsize=(12, 3*viz_num_pairs), dpi=150)
-
-xx = jnp.linspace(0, 3e-5, 300)
-for i in range(viz_num_pairs):
-    amp, mu, sig = valid_params[i]
-    srcs = normal_distribution(xx, amp, mu, sig)
-    obs = clean_obs_list[i] - noisy_obs_list[i]
-    # draw each side by side
-    # axs[i, 0].set_xscale('log')
-    axs[i, 1].set_xscale('log')
-    axs[i, 0].plot(xx, srcs)
-    axs[i, 1].plot(t, obs.T)
-    axs[i, 0].set_title(f"observations")
-    axs[i, 1].set_title(f"srcs: {i+1} ({mu[0]:.2e}, {mu[1]:.2e})")
-    axs[i, 0].set_xlabel("Diffusion coefficient (m^2/s)")
-    axs[i, 1].set_xlabel("Time (s)")
-    # axs[i, 0].set_ylabel("Probability density")
-    axs[i, 1].set_ylabel("g2(t)")
-
-fig.tight_layout()
-plt.show()
-
-# %%
-def rilt_observation_matrix(q, t, possible_D, x):
-    A = jnp.exp(jnp.einsum('i,j,k->ijk', -possible_D, q**2, t))
-    return jnp.einsum('i,ijk->jk', x, A)
-
-def zero_at_ends_rilt(q, t, possible_D, x):
-    x_ = x.at[0].set(0.0).at[-1].set(0.0)
-    return rilt_observation_matrix(q, t, possible_D, x_)
-
-def dummy_bounds(k):
-    return (jnp.zeros(k),), (1e1 * jnp.ones(k),)
-
-
-def L1_norm(x, alpha):
-    return alpha * jnp.sum(jnp.abs(x))
-
-L1_grad = jax.grad(L1_norm)
-L1_hess = jax.hessian(L1_norm)
-
-def L1_regularizer(x, alpha=1.0):
-    return L1_norm(x, alpha), L1_grad(x, alpha), L1_hess(x, alpha)
-
-
-def L2_norm(x, alpha):
-    return alpha * jnp.sqrt(jnp.sum(jnp.square(x)))
-
-L2_grad = jax.grad(L2_norm)
-L2_hess = jax.hessian(L2_norm)
-
-def L2_regularizer(x, alpha=1.0):
-    return L2_norm(x, alpha), L2_grad(x, alpha), L2_hess(x, alpha)
-
-# possible_D = jnp.logspace(-6.5, -4.5, 30) * SCALING_CONST
-possible_D = jnp.linspace(1e-7, 3e-5, 40) * SCALING_CONST
-
-# contin_opt = HNMFOptimizer(
-contin_opt = NewHNMFOptimizer(
-# contin_opt = PerturbanceHNMFOptimizer(
-# contin_opt = RedoHNMFOptimizer(
-    model_fn=zero_at_ends_rilt,
-    param_generator=InitParamsGenerator2(dummy_bounds),
-    bound_generator=dummy_bounds,
-    input_args = ('q', 't', 'possible_D'),
-    param_args=('x'),
-    constants = {},
-    min_k=len(possible_D),
-    max_k=len(possible_D),
-    nsim=5,
-    regularizer_fn=functools.partial(L2_regularizer, alpha=0.005)
-    # regularizer_fn=functools.partial(L1_regularizer, alpha=1.0)
-)
-
-
-
-# %%
 # set up the multi-phase optimization
 
 optimizer_dirac_single = NewHNMFOptimizer(
@@ -905,7 +819,6 @@ opt_options = {
 
 
 # %%
-opt_options
 
 # %%
 rand_key = jax.random.key(495)
