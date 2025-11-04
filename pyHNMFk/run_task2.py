@@ -821,7 +821,7 @@ opt_options = {
 # %%
 
 # %%
-rand_key = jax.random.key(495)
+# rand_key = jax.random.key(495)
 
 final_full_sols = []
 final_clust_sols = []
@@ -860,6 +860,7 @@ from pathlib import Path
 
 # for i in range(len(final_clust_sols), len(noisy_obs_list)):
 def run_opt(i):
+    rand_key = jax.random.key(495 + i)
     # observations = noisy_obs_list[i]
     observations = clean_obs_list[i]
 
