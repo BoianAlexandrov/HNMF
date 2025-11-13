@@ -968,8 +968,8 @@ class InitParamFeeder:
 
 # for i in range(len(final_clust_sols), len(noisy_obs_list)):
 def run_opt(i):
-    # rand_key = jax.random.key(495 + i)
-    rand_key = jax.random.key(495)
+    rand_key = jax.random.key(495 + i)
+    # rand_key = jax.random.key(495)
     for _j in range(i):
         rand_key, subkey1, subkey2, subkey3 = jax.random.split(rand_key, 4)
     # observations = noisy_obs_list[i]
