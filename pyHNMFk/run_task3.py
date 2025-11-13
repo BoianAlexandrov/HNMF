@@ -639,7 +639,7 @@ valid_params = distanced_params = jnp.stack([amp1, amp2, mean1, mean2, std1, std
 
 # %%
 amp, mu, sig = valid_params[10]
-beta = 0.7
+# beta = 0.7
 
 # %%
 g1_matrix(q, t, amp, mu, sig)
@@ -812,21 +812,28 @@ gen_beta = 0.7
 
 ensemble_size = 1
 
-clean_obs_list, noisy_obs_list, noise_errors, snrs = gen_data(
-    q,
-    t,
-    valid_params,
-    ensemble_size,
-    gen_beta=gen_beta,
-    baseline=1.0,
-    rand_key=jax.random.key(1337),
-    count_rate_khz=20.0, # average count rate for HeNe laser
-    experiment_measurement_time_s=30.0, # total measurement time in seconds
-    noise_scaling_factor=0.1
-)
+# clean_obs_list, noisy_obs_list, noise_errors, snrs = gen_data(
+#     q,
+#     t,
+#     valid_params,
+#     ensemble_size,
+#     gen_beta=gen_beta,
+#     baseline=1.0,
+#     rand_key=jax.random.key(1337),
+#     count_rate_khz=20.0, # average count rate for HeNe laser
+#     experiment_measurement_time_s=30.0, # total measurement time in seconds
+#     noise_scaling_factor=0.1
+# )
 
-print(f"error due to noise (avg rmse): {jnp.average(jnp.array(noise_errors))}")
-print(f"average SNR: {jnp.average(jnp.array(snrs))}")
+clean_obs_list = []
+for i in range(valid_params.shape[0]):
+    amp, mu, sig = valid_params[i]
+    clean_g1 = g1_matrix(q, t, amp, mu, sig)
+    clean_obs_list.append(clean_g1)
+
+
+# print(f"error due to noise (avg rmse): {jnp.average(jnp.array(noise_errors))}")
+# print(f"average SNR: {jnp.average(jnp.array(snrs))}")
 
 
 
@@ -842,7 +849,7 @@ optimizer_dirac_single = NewHNMFOptimizer(
     param_generator=InitParamsGenerator2(gen_bounds_dirac_g1),
     bound_generator=gen_bounds_dirac_g1,
     input_args = ('q', 't'),
-    param_args=('D', 'amp', 'beta'),
+    param_args=('D', 'amp'),
     constants = {"const": SCALING_CONST},
     min_k=min_k,
     max_k=max_k,
@@ -871,7 +878,7 @@ for k in range(min_k, max_k + 1):
         model_fn=g1_matrix,
         param_generator=InitParamsGenerator2(gen_bounds_normal_std),
         bound_generator=gen_bounds_normal_std,
-        input_args = ('q', 't', 'amp', 'mu', 'beta'),
+        input_args = ('q', 't', 'amp', 'mu'),
         param_args=('sig',),
         constants = {},
         min_k=k,
@@ -903,7 +910,7 @@ final_opt = NewHNMFOptimizer(
     param_generator=InitParamsGenerator2(gen_bounds_normal_final),
     bound_generator=gen_bounds_normal_final,
     input_args = ('q', 't'),
-    param_args=('amp', 'mu', 'sig', 'beta'),
+    param_args=('amp', 'mu', 'sig'),
     constants = {},
     min_k=min_k,
     max_k=max_k,
