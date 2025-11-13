@@ -748,69 +748,69 @@ def simulate_noisy_g2(
     return noisy_g2_minus_1, rand_key
 
 
-def gen_data(
-        q,
-        t,
-        valid_params,
-        ensemble_size,
-        gen_beta=0.7,
-        baseline=1.0,
-        rand_key=jax.random.key(1337),
-        count_rate_khz=45.0,
-        experiment_measurement_time_s=30.0,
-        noise_scaling_factor=0.1
-    ):
-    clean_obs_list = []
-    noisy_obs_list = []
-    noise_errors = []
-    snrs = []
-    for i in range(valid_params.shape[0]):
-        amp, mu, sig = valid_params[i]
-        clean_g1 = g1_matrix(q, t, amp, mu, sig)
-        g2_ideal = baseline + gen_beta*(clean_g1**2)
+# def gen_data(
+#         q,
+#         t,
+#         valid_params,
+#         ensemble_size,
+#         gen_beta=0.7,
+#         baseline=1.0,
+#         rand_key=jax.random.key(1337),
+#         count_rate_khz=45.0,
+#         experiment_measurement_time_s=30.0,
+#         noise_scaling_factor=0.1
+#     ):
+#     clean_obs_list = []
+#     noisy_obs_list = []
+#     noise_errors = []
+#     snrs = []
+#     for i in range(valid_params.shape[0]):
+#         amp, mu, sig = valid_params[i]
+#         clean_g1 = g1_matrix(q, t, amp, mu, sig)
+#         g2_ideal = baseline + gen_beta*(clean_g1**2)
 
 
-        # ensemble_observations = []
-        # for _ in range(ensemble_size):
-        #     noisy_g2_minus_1, rand_key = add_poisson_noise(g2_ideal, rand_key, average_counts_khz=average_counts_khz, baseline=baseline)
-        #     ensemble_observations.append(noisy_g2_minus_1)
-        # noisy_g2_minus_1 = jnp.mean(jnp.array(ensemble_observations), axis=0)
+#         # ensemble_observations = []
+#         # for _ in range(ensemble_size):
+#         #     noisy_g2_minus_1, rand_key = add_poisson_noise(g2_ideal, rand_key, average_counts_khz=average_counts_khz, baseline=baseline)
+#         #     ensemble_observations.append(noisy_g2_minus_1)
+#         # noisy_g2_minus_1 = jnp.mean(jnp.array(ensemble_observations), axis=0)
 
-        # noisy_g2_minus_1, rand_key = add_poisson_noise(g2_ideal, rand_key, average_counts_khz=average_counts_khz, baseline=baseline)
+#         # noisy_g2_minus_1, rand_key = add_poisson_noise(g2_ideal, rand_key, average_counts_khz=average_counts_khz, baseline=baseline)
 
-        ensemble_observations = []
-        for _ in range(ensemble_size):
-            noisy_g2_minus_1, rand_key = simulate_noisy_g2(
-                g2_ideal,
-                rand_key,
-                count_rate_khz=count_rate_khz,
-                duration_s=experiment_measurement_time_s,
-                baseline=baseline,
-                noise_scaling_factor=noise_scaling_factor
-            )
-            ensemble_observations.append(noisy_g2_minus_1)
-        noisy_g2_minus_1 = jnp.mean(jnp.array(ensemble_observations), axis=0)
+#         ensemble_observations = []
+#         for _ in range(ensemble_size):
+#             noisy_g2_minus_1, rand_key = simulate_noisy_g2(
+#                 g2_ideal,
+#                 rand_key,
+#                 count_rate_khz=count_rate_khz,
+#                 duration_s=experiment_measurement_time_s,
+#                 baseline=baseline,
+#                 noise_scaling_factor=noise_scaling_factor
+#             )
+#             ensemble_observations.append(noisy_g2_minus_1)
+#         noisy_g2_minus_1 = jnp.mean(jnp.array(ensemble_observations), axis=0)
 
-        g2_ideal_minus1 = g2_ideal - baseline
-        clean_obs_list.append(g2_ideal_minus1)
+#         g2_ideal_minus1 = g2_ideal - baseline
+#         clean_obs_list.append(g2_ideal_minus1)
 
-        snr = gen_beta / jnp.std((noisy_g2_minus_1 - g2_ideal_minus1))
-        snrs.append(snr)
+#         snr = gen_beta / jnp.std((noisy_g2_minus_1 - g2_ideal_minus1))
+#         snrs.append(snr)
 
-        r = g2_ideal_minus1 - noisy_g2_minus_1
-        rmse = jnp.sqrt(jnp.sum(jnp.square(r)) / g2_ideal_minus1.size)
-        noise_errors.append(rmse)
+#         r = g2_ideal_minus1 - noisy_g2_minus_1
+#         rmse = jnp.sqrt(jnp.sum(jnp.square(r)) / g2_ideal_minus1.size)
+#         noise_errors.append(rmse)
 
-        noisy_obs_list.append(noisy_g2_minus_1)
-        # noisy_obs_list.append(g2_ideal - baseline)
+#         noisy_obs_list.append(noisy_g2_minus_1)
+#         # noisy_obs_list.append(g2_ideal - baseline)
 
-    return clean_obs_list, noisy_obs_list, noise_errors, snrs
+#     return clean_obs_list, noisy_obs_list, noise_errors, snrs
 
 
-# average_counts_khz = 1500
-gen_beta = 0.7
+# # average_counts_khz = 1500
+# gen_beta = 0.7
 
-ensemble_size = 1
+# ensemble_size = 1
 
 # clean_obs_list, noisy_obs_list, noise_errors, snrs = gen_data(
 #     q,
@@ -990,15 +990,12 @@ def run_opt(i):
 
     params_to_feed = {}
     for k in clust_sol.index:
-        D, amp, betas = clust_sol.loc[k]['centers']
+        D, amp = clust_sol.loc[k]['centers']
         if not isinstance(D, jnp.ndarray):
             D = jnp.array(D, ndmin=1)
         if not isinstance(amp, jnp.ndarray):
             amp = jnp.array(amp, ndmin=1)
-        if not isinstance(betas, jnp.ndarray):
-            betas = jnp.array(betas, ndmin=1)
-        beta = betas[0:1]
-        std_sols = std_opts[k]((q, t, amp, D, beta), observations, opt_options=opt_options)
+        std_sols = std_opts[k]((q, t, amp, D), observations, opt_options=opt_options)
         sig_sol = process_res_std_g1(std_sols)['centers'].iloc[0][0]
         if not isinstance(sig_sol, jnp.ndarray):
             sig_sol = jnp.array(sig_sol, ndmin=1)
@@ -1010,7 +1007,7 @@ def run_opt(i):
             D_ = D + jax.random.normal(subkey1, D.shape) * 0.05 * D
             sig_ = sig_sol + jax.random.normal(subkey2, sig_sol.shape) * 0.05 * sig_sol
             amp_ = amp + jax.random.normal(subkey3, amp.shape) * 0.05 * amp
-            params_to_feed[k].append((amp_, D_, sig_, beta))
+            params_to_feed[k].append((amp_, D_, sig_))
 
     print("finished phase 2 for pair", i)
 
